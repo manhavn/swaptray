@@ -78,7 +78,7 @@ fn desktop_entry(exec: &str) -> String {
          Type=Application\n\
          Name=SwapTray\n\
          Comment=Manage the swap file from the system tray\n\
-         Exec={}\n\
+         Exec={} --daemon\n\
          Terminal=false\n\
          NoDisplay=true\n\
          X-GNOME-Autostart-enabled=true\n\

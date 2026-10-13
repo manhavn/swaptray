@@ -4,6 +4,7 @@
 //! owns a separate main-thread native event loop in a child process.
 
 mod autostart;
+mod daemon;
 mod dialog;
 mod icon;
 mod notify;
@@ -26,7 +27,12 @@ type TrayHandle = ksni::blocking::Handle<SwapTray>;
 fn main() {
     let args: Vec<String> = std::env::args().skip(1).collect();
     let code = match args.first().map(String::as_str) {
-        None => run_tray(),
+        None => run_tray(false),
+        Some("--daemon") => match daemon::launch() {
+            Ok(()) => 0,
+            Err(e) => { eprintln!("swaptray: {e}"); 1 }
+        },
+        Some("--internal-daemon") => run_tray(true),
         Some("--internal-create-dialog") => dialog::run(),
         Some("--status") => {
             print_status();
@@ -55,6 +61,7 @@ fn print_help() {
 
 Usage:
   swaptray            Start the tray app (default)
+  swaptray --daemon   Start the tray in the background and return
   swaptray --status   Print the current swap file state and exit
   swaptray --version  Print the version
   swaptray --help     Show this help
@@ -94,9 +101,12 @@ fn print_status() {
     );
 }
 
-fn run_tray() -> i32 {
+fn run_tray(detached: bool) -> i32 {
     let Some(_lock) = single_instance::acquire() else {
         eprintln!("[swaptray] another instance is already running");
+        if detached {
+            if let Err(e) = daemon::ready() { eprintln!("[swaptray] readiness failed: {e}"); return 1; }
+        }
         return 0;
     };
 
@@ -133,6 +143,9 @@ fn run_tray() -> i32 {
         return 1;
     }
 
+    if detached {
+        if let Err(e) = daemon::ready() { eprintln!("[swaptray] readiness failed: {e}"); return 1; }
+    }
     loop {
         std::thread::park();
     }

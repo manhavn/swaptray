@@ -57,10 +57,18 @@ CLI:
 
 ```
 swaptray            start the tray app
+swaptray --daemon   start the tray in the background and return
 swaptray --status   print current state and exit
 swaptray --version  print version
 swaptray --help     usage
 ```
+
+`--daemon` detaches from the terminal, preserves the desktop session
+environment, and returns only after tray startup succeeds. Logs are appended
+to `$XDG_STATE_HOME/swaptray/swaptray.log` (default:
+`~/.local/state/swaptray/swaptray.log`). Use **Quit** in the tray to stop it.
+An already running tray is reused. Start at Login launches with `--daemon`;
+neither mode automatically enables swap.
 
 ## Development
 
@@ -82,7 +90,7 @@ One command builds all variants (`x86_64`/`aarch64`, glibc with a 2.17
 floor, and dynamically linked musl for Alpine), packages them and prints the upload command:
 
 ```sh
-./release.sh 0.1.0
+./release.sh 0.1.1
 ```
 
 Backend: `cargo-zigbuild` + `zig` (`cargo install cargo-zigbuild`), or
