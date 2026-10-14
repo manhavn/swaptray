@@ -90,7 +90,7 @@ One command builds all variants (`x86_64`/`aarch64`, glibc with a 2.17
 floor, and dynamically linked musl for Alpine), packages them and prints the upload command:
 
 ```sh
-./release.sh 0.1.1
+./release.sh 0.1.2
 ```
 
 Backend: `cargo-zigbuild` + `zig` (`cargo install cargo-zigbuild`), or
