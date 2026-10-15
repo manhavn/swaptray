@@ -102,6 +102,10 @@ fn print_status() {
 }
 
 fn run_tray(detached: bool) -> i32 {
+    // Before the instance lock: an already-running tray must not keep a stale
+    // entry (one that still pins the mise version it was written on) alive.
+    autostart::refresh_exec_path();
+
     let Some(_lock) = single_instance::acquire() else {
         eprintln!("[swaptray] another instance is already running");
         if detached {

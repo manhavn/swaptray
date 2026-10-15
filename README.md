@@ -50,7 +50,7 @@ Menu:
 | Turn On Swap | `swapon` (authentication popup) |
 | Turn Off Swap | `swapoff` (authentication popup) |
 | Delete Swap File | turns swap off if needed, then removes the file |
-| Start at Login | writes/removes `~/.config/autostart/swaptray.desktop` |
+| Start at Login | writes/removes `~/.config/autostart/swaptray.desktop` (version-independent `Exec`) |
 | Quit | exits |
 
 CLI:
@@ -90,7 +90,7 @@ One command builds all variants (`x86_64`/`aarch64`, glibc with a 2.17
 floor, and dynamically linked musl for Alpine), packages them and prints the upload command:
 
 ```sh
-./release.sh 0.1.3
+./release.sh 0.1.4
 ```
 
 Backend: `cargo-zigbuild` + `zig` (`cargo install cargo-zigbuild`), or
@@ -120,3 +120,10 @@ remain enabled; linker warnings and errors are not suppressed.
 - GUI libraries are loaded at runtime: OpenGL/EGL, libxkbcommon, and
   libxkbcommon-x11 for X11 sessions. A polkit authentication agent must run
   in your desktop session. Headless servers do not provide a tray.
+- **Start at Login** points `Exec=` at a version-independent path: the mise
+  shim `~/.local/share/mise/shims/swaptray` (or the `<tool>/latest` alias,
+  whichever exists) instead of the versioned install path mise execs the
+  binary from. Upgrading with `mise` therefore keeps the entry working without
+  toggling *Start at Login* off and on; an entry left behind by an older
+  SwapTray is rewritten at startup. An `Exec=` without a mise install path
+  (your own entry) is never touched.
