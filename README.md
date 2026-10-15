@@ -90,7 +90,7 @@ One command builds all variants (`x86_64`/`aarch64`, glibc with a 2.17
 floor, and dynamically linked musl for Alpine), packages them and prints the upload command:
 
 ```sh
-./release.sh 0.1.2
+./release.sh 0.1.3
 ```
 
 Backend: `cargo-zigbuild` + `zig` (`cargo install cargo-zigbuild`), or
@@ -112,6 +112,9 @@ remain enabled; linker warnings and errors are not suppressed.
 
 - The swap file is created with `fallocate` (falls back to `dd`),
   `chmod 600`, `chattr +C` where supported (btrfs), then `mkswap`.
+- The create dialog can be closed while the privileged command is still
+  running: the command keeps going in the background, and the tray menu shows
+  the result the next time it is opened.
 - No `/etc/fstab` changes are made. SwapTray never enables swap automatically;
   an existing boot configuration managed by another tool remains unchanged.
 - GUI libraries are loaded at runtime: OpenGL/EGL, libxkbcommon, and

@@ -1,6 +1,6 @@
 //! A short-lived child process owns each native dialog/event loop.
 use std::sync::atomic::{AtomicBool, Ordering};
-use std::sync::mpsc;
+use std::sync::mpsc::{self, TryRecvError};
 use std::time::Duration;
 use crate::{icon, notify, ops, state};
 static OPEN: AtomicBool = AtomicBool::new(false);
@@ -20,6 +20,10 @@ const CONTENT_W: f32 = 360.0;
 const MARGIN: f32 = 8.0;
 /// How often to re-ask for the fitted inner size before giving up.
 const FIT_TRIES: u8 = 8;
+/// Backstop interval for re-checking the worker while an operation runs. The
+/// worker wakes the dialog the moment it reports, so this only covers a lost
+/// wake-up; it is slow on purpose: waiting must not spin the CPU or the GPU.
+const POLL: Duration = Duration::from_millis(1000);
 
 pub fn run() -> i32 {
     let options = eframe::NativeOptions {
@@ -48,14 +52,22 @@ struct Dialog {
 }
 impl eframe::App for Dialog {
     fn ui(&mut self, ui: &mut egui::Ui, _: &mut eframe::Frame) {
-        if let Some(rx) = &self.pending {
-            if let Ok(result) = rx.try_recv() {
+        // Backstop only: the worker wakes the dialog as soon as it reports
+        // (see the spawn below), so this does not gate the common path.
+        match self.pending.as_ref().map(mpsc::Receiver::try_recv) {
+            Some(Ok(result)) => {
                 self.pending = None;
                 match result {
                     Ok(_) => { notify::notify("Swap file created", "Turn it on manually from the tray menu."); ui.ctx().send_viewport_cmd(egui::ViewportCommand::Close); }
                     Err(e) => self.error = Some(e.to_string()),
                 }
             }
+            // Worker gone without a result: never stay stuck in the busy state.
+            Some(Err(TryRecvError::Disconnected)) => {
+                self.pending = None;
+                self.error = Some("The operation was interrupted.".into());
+            }
+            _ => {}
         }
         let busy = self.pending.is_some();
         // The root `Ui` covers the whole viewport but has no background of its
@@ -78,8 +90,14 @@ impl eframe::App for Dialog {
             if let Some(error) = &self.error { ui.add_space(4.0); ui.colored_label(ui.visuals().error_fg_color, error); }
             if busy {
                 ui.add_space(4.0);
-                ui.horizontal(|ui| { ui.spinner(); ui.label("Waiting for authentication / creating file..."); });
-                ui.ctx().request_repaint_after(Duration::from_millis(100));
+                // No animated spinner: it repaints every display frame for the
+                // whole wait (polkit prompt, then the file itself), which keeps
+                // the GPU and a CPU core awake for minutes. Static text says the
+                // same thing and costs nothing between polls.
+                ui.label("Waiting for authentication / creating file...");
+                ui.add_space(2.0);
+                ui.weak("Closing this window does not cancel the operation.");
+                ui.ctx().request_repaint_after(POLL);
             }
             ui.add_space(10.0);
             // `with_layout` would claim all remaining space and defeat the
@@ -108,14 +126,24 @@ impl eframe::App for Dialog {
             ui.ctx().send_viewport_cmd(egui::ViewportCommand::InnerSize(want));
             ui.ctx().request_repaint();
         }
-        if busy && ui.input(|i| i.viewport().close_requested()) { ui.ctx().send_viewport_cmd(egui::ViewportCommand::CancelClose); }
+        // The window stays closable while an operation runs: the privileged
+        // command is its own process and finishes whether or not we watch it.
         if submit {
             match state::parse_gb(&self.gb) {
                 Err(e) => self.error = Some(e),
                 Ok(bytes) => {
-                    let (tx, rx) = mpsc::channel(); self.pending = Some(rx); self.error = None;
-                    std::thread::spawn(move || { let _ = tx.send(ops::execute(&ops::Op::Create { bytes })); });
-                    ui.ctx().request_repaint_after(Duration::from_millis(100));
+                    let (tx, rx) = mpsc::channel();
+                    self.pending = Some(rx);
+                    self.error = None;
+                    let ctx = ui.ctx().clone();
+                    std::thread::spawn(move || {
+                        let result = ops::execute(&ops::Op::Create { bytes });
+                        let _ = tx.send(result);
+                        // Report now: request_repaint is safe from any thread.
+                        ctx.request_repaint();
+                    });
+                    // Switch to the busy state (and arm the backstop) now.
+                    ui.ctx().request_repaint();
                 }
             }
         }
