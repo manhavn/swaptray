@@ -90,7 +90,7 @@ One command builds all variants (`x86_64`/`aarch64`, glibc with a 2.17
 floor, and dynamically linked musl for Alpine), packages them and prints the upload command:
 
 ```sh
-./release.sh 0.1.4
+./release.sh 0.1.5
 ```
 
 Backend: `cargo-zigbuild` + `zig` (`cargo install cargo-zigbuild`), or
@@ -120,6 +120,12 @@ remain enabled; linker warnings and errors are not suppressed.
 - GUI libraries are loaded at runtime: OpenGL/EGL, libxkbcommon, and
   libxkbcommon-x11 for X11 sessions. A polkit authentication agent must run
   in your desktop session. Headless servers do not provide a tray.
+- The privileged script is piped to `/bin/sh` on stdin instead of passed with
+  `-c`. The authentication dialog shows pkexec's command line and pkexec
+  truncates anything past 80 bytes (first 38, ` ... `, last 37), so `-c` made
+  the dialog display the swap script as an unreadable fragment; now it reads
+  "Authentication is needed to run `/bin/sh' as the super user", and the
+  script no longer appears in the dialog or in `ps` output.
 - **Start at Login** points `Exec=` at a version-independent path: the mise
   shim `~/.local/share/mise/shims/swaptray` (or the `<tool>/latest` alias,
   whichever exists) instead of the versioned install path mise execs the

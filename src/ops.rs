@@ -1,9 +1,15 @@
 //! Privileged operations: shell scripts executed through `pkexec`, which
 //! triggers the system authentication dialog (polkit agent).
+//!
+//! The script is handed to `/bin/sh` on **stdin**, not with `-c`: the dialog
+//! shows pkexec's command line, and pkexec truncates it (first 38 bytes,
+//! `" ... "`, last 37) when it exceeds 80, which turns a full script into
+//! unreadable fragments. `/bin/sh` alone keeps that message short.
 
 use std::fmt;
+use std::io::Write;
 use std::path::{Path, PathBuf};
-use std::process::Command;
+use std::process::{Command, Stdio};
 
 use crate::state;
 
@@ -95,11 +101,36 @@ pub fn run(script: &str) -> Result<String, OpError> {
     let pkexec = find_bin("pkexec").ok_or(OpError::Missing("pkexec (polkit)"))?;
     let sh = find_sh().ok_or(OpError::Missing("/bin/sh"))?;
 
-    let out = Command::new(&pkexec)
+    // pkexec execs the program with our file descriptors, so the script can go
+    // on the child's stdin. Authentication dialogs read the password from the
+    // terminal, never from stdin.
+    let mut child = Command::new(&pkexec)
         .arg(&sh)
-        .arg("-c")
-        .arg(script)
-        .output()
+        .stdin(Stdio::piped())
+        .stdout(Stdio::piped())
+        .stderr(Stdio::piped())
+        .spawn()
+        .map_err(|e| OpError::Spawn(e.to_string()))?;
+
+    let mut pipe = child
+        .stdin
+        .take()
+        .ok_or_else(|| OpError::Spawn("stdin was not piped".to_string()))?;
+    if let Err(e) = pipe.write_all(script.as_bytes()) {
+        // pkexec is already gone (dialog dismissed, not authorized) and the
+        // exit status below says why; anything else would leave a partial
+        // script for a root shell to run.
+        if e.kind() != std::io::ErrorKind::BrokenPipe {
+            let _ = child.kill();
+            let _ = child.wait();
+            return Err(OpError::Spawn(format!("cannot send script: {e}")));
+        }
+    }
+    // Closing the pipe is what tells `/bin/sh` the script ended.
+    drop(pipe);
+
+    let out = child
+        .wait_with_output()
         .map_err(|e| OpError::Spawn(e.to_string()))?;
 
     if out.status.success() {
